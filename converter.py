@@ -1,6 +1,6 @@
 import pandas as pd
 import argparse
-import os
+import subprocess
 
 def convert_file_format(input_filename, output_filename):
     # Read the input file
@@ -42,7 +42,12 @@ def main():
     program_path = args.program_path
 
     convert_file_format(input_file, output_file)
-    os.system(f"python {program_path} -f {params_file}")
+    subprocess.run([
+        "python",
+        program_path,
+        "-f",
+        params_file
+    ], input=b"\n", stdout=subprocess.PIPE)
 
 
 if __name__ == "__main__":
