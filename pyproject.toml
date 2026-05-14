@@ -1,5 +1,6 @@
 [project]
 name = "visualization"
+version = "1.0"
 dependencies = [
 "dash",
 "plotly",
