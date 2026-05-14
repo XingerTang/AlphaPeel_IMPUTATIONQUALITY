@@ -1,0 +1,2 @@
+[tool.vercel]
+entrypoint = "run_all.plot_interactive:app"
