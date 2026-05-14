@@ -5,8 +5,6 @@ dependencies = [
 "dash",
 "plotly",
 "pandas",
-"numpy",
-"matplotlib",
 ]
 
 [tool.vercel]
