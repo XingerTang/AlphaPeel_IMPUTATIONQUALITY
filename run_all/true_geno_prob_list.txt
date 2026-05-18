@@ -1,0 +1,3 @@
+true-geno_prob
+true-metafounder_geno_prob
+true-X_chr_geno_prob

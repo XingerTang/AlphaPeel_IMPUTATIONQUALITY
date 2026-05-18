@@ -1,6 +1,7 @@
 import pandas as pd
 import plotly.subplots as sp
 import plotly.graph_objects as go
+import plotly.express as px
 import plotly.offline as pyo
 import dash
 from dash import dcc, html
@@ -73,7 +74,7 @@ def update_plot(selected_column, selected_files):
     global filename
 
     fig = sp.make_subplots(rows=1, cols=1)
-    colors = ['blue', 'red', 'green', 'orange', 'purple', 'brown', 'pink', 'black', 'gray', 'yellow']
+    colors = px.colors.qualitative.Alphabet
     for i, df in enumerate(dfs):
         if i in selected_files:
             if columns_to_plot[selected_column] == 'accuracy':

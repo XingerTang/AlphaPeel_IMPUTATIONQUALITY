@@ -1,0 +1,4 @@
+-i converted_true_metafounder_geno_prob.txt
+-l 3
+-c 1
+n SNP_no,SSSSS,PPPPPPP
