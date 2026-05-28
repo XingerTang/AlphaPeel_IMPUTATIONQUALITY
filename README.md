@@ -2,7 +2,7 @@
 
 This repository contains the code that convert the [``AlphaPeel``](https://github.com/AlphaGenes/AlphaPeel) genotype probability output file to the input format of the [``IMPUTATIONQUALITY``](https://gitlab.gwdg.de/kolja.thormann1/imputationquality) [1].
 
-The ``ImputeAccure.py`` is copied from the [``IMPUTATIONQUALITY`` repository](https://gitlab.gwdg.de/kolja.thormann1/imputationquality).
+The ``ImputeAccure.py`` is modified from the [``IMPUTATIONQUALITY`` repository](https://gitlab.gwdg.de/kolja.thormann1/imputationquality).
 
 # Example
 

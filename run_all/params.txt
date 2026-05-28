@@ -1,4 +1,0 @@
--i converted_true-X_chr_geno_prob.txt
--l 3
--c 1
--n SNP_no,SSSSS,PPPPPPP

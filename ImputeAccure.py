@@ -122,9 +122,11 @@ def process_row_data(dist_data):
     else: f_A=0
 #!! Rosenberger: Hier f_A=Allel-count / Anz. Haplotypen (2xPersonen)
     if f_A == 0:
-        f_A = (2*max(1000,n_indiv)+1)/(2*max(1000,n_indiv)+2)
+        # f_A = (2*max(1000,n_indiv)+1)/(2*max(1000,n_indiv)+2)
+        f_A = np.finfo(np.float64).eps
     if f_A == 1:
-        f_A = 1-(2*max(1000,n_indiv)+1)/(2*max(1000,n_indiv)+2)   
+        # f_A = 1-(2*max(1000,n_indiv)+1)/(2*max(1000,n_indiv)+2)   
+        f_A = 1 - np.finfo(np.float64).eps
 #!! Rosenberger: Berechungsprobelem bei f_A 0 oder 1 vermeiden (Bayes-Schätzer x+1/x+2)           
      
     q_hwe = -2.0 * f_A * (f_A - 1.0) * (3.0 * f_A ** 2 - 3.0 * f_A + 2.0)
