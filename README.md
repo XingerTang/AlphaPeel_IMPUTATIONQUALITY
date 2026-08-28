@@ -4,6 +4,8 @@ This repository contains the code that convert the [``AlphaPeel``](https://githu
 
 The ``ImputeAccure.py`` is modified from the [``IMPUTATIONQUALITY`` repository](https://gitlab.gwdg.de/kolja.thormann1/imputationquality).
 
+The ``OptimizedImputeAccure.py`` is another modified version that is adapted for larger discrete file inputs that are in the format of AlphaGenes genotype or haplotype format. 
+
 # Example
 
 In the ``example\``:
