@@ -137,8 +137,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--input-files",
         nargs="+",
         help=(
-            "multiple input files for genotype input; files are appended by "
-            "locus in the order provided"
+            "multiple genotype input files with the same locus columns; "
+            "genotype cells are merged by sample ID and locus"
         ),
     )
     parser.add_argument("-o", "--output")
@@ -444,6 +444,7 @@ def genotype_values(parts: list[str], n_loci: int, line_no: int) -> list[int]:
         )
 
     values: list[int] = []
+    # Column 1 is the sample ID; every later column is a real locus.
     for token in parts[1:]:
         if token not in {"0", "1", "2", "9"}:
             raise ValueError(
@@ -452,6 +453,33 @@ def genotype_values(parts: list[str], n_loci: int, line_no: int) -> list[int]:
             )
         values.append(int(token))
     return values
+
+
+def nonempty_lines(handle: TextIO) -> Iterator[tuple[int, str]]:
+    for line_no, raw_line in enumerate(handle, 1):
+        if raw_line.strip():
+            yield line_no, raw_line
+
+
+def combine_genotype_values(
+    values_by_file: list[list[int]],
+    line_no: int,
+    sample_id: str,
+) -> list[int]:
+    combined: list[int] = []
+    for locus_index, values in enumerate(zip(*values_by_file), 1):
+        genotype = values[0]
+        for next_genotype in values[1:]:
+            if genotype == next_genotype:
+                continue
+            if genotype == 9 and next_genotype != 9:
+                genotype = next_genotype
+                continue
+            if next_genotype == 9:
+                continue
+            # Conflicting known values keep the earlier input file's value.
+        combined.append(genotype)
+    return combined
 
 
 def update_haplotype_counts(
@@ -879,23 +907,22 @@ def process_genotype_inputs(
     unmatched_panel_name: str,
     panel_output_dir: Path | None,
 ) -> tuple[int, int, int, dict[str, Path]]:
-    total_loci = 0
+    n_loci: int | None = None
+    active_loci: range | list[int] = range(0)
     count0, count1, count2 = make_count_arrays(0)
     grouped_counts: dict[str, tuple[array, array, array]] = {}
-    sample_counts_by_file: list[int] = []
+    combined_by_id: dict[str, list[int]] = {}
+    sample_order: list[str] = []
+    rows_read_by_file: list[int] = []
+    duplicate_rows_by_file: list[int] = []
     tic = time.perf_counter()
 
     for file_index, input_path in enumerate(input_paths, 1):
-        n_loci: int | None = None
-        active_loci: range | list[int] = range(0)
-        sample_index = 0
-        locus_offset = total_loci
-
+        rows_read = 0
+        duplicate_rows = 0
+        seen_ids: set[str] = set()
         with open_input(input_path) as file:
-            for line_no, raw_line in enumerate(file, 1):
-                if not raw_line.strip():
-                    continue
-
+            for line_no, raw_line in nonempty_lines(file):
                 parts = raw_line.split()
                 if len(parts) < 2:
                     raise ValueError(
@@ -905,82 +932,102 @@ def process_genotype_inputs(
 
                 if n_loci is None:
                     n_loci = len(parts) - 1
-                    total_loci += n_loci
                     count0.extend(array("Q", [0]) * n_loci)
                     count1.extend(array("Q", [0]) * n_loci)
                     count2.extend(array("Q", [0]) * n_loci)
-                    for group_count0, group_count1, group_count2 in grouped_counts.values():
-                        group_count0.extend(array("Q", [0]) * n_loci)
-                        group_count1.extend(array("Q", [0]) * n_loci)
-                        group_count2.extend(array("Q", [0]) * n_loci)
                     if exclude_markers:
                         active_loci = [
                             index
                             for index in range(n_loci)
-                            if f"loci_{locus_offset + index + 1}" not in exclude_markers
+                            if f"loci_{index + 1}" not in exclude_markers
                         ]
                     else:
                         active_loci = range(n_loci)
-                    print(
-                        "Input %i/%i: %s"
-                        % (file_index, len(input_paths), input_path)
-                    )
-                    print(
-                        "  loci in file: %i; global loci: %i-%i"
-                        % (n_loci, locus_offset + 1, total_loci)
-                    )
+                    print(f"Number of genotype input files: {len(input_paths)}")
+                    print("ID column: 1; first locus column: 2")
+                    print(f"Loci per file: {n_loci}")
+
+                sample_id = parts[0]
+                if sample_id in seen_ids:
+                    duplicate_rows += 1
+                    continue
+                seen_ids.add(sample_id)
 
                 genotypes = genotype_values(parts, n_loci, line_no)
-                if sample_index not in exclude_ppl:
-                    if panel_by_id is None:
-                        target_counts_list = [(count0, count1, count2)]
-                    else:
-                        panels = panel_by_id.get(parts[0], [unmatched_panel_name])
-                        target_counts_list = [
-                            get_group_counts(grouped_counts, panel, total_loci)
-                            for panel in panels
-                        ]
-                    for target_counts in target_counts_list:
-                        update_genotype_counts(
-                            target_counts[0],
-                            target_counts[1],
-                            target_counts[2],
-                            genotypes,
-                            active_loci,
-                            locus_offset,
-                        )
-                sample_index += 1
+                if sample_id in combined_by_id:
+                    combined_by_id[sample_id] = combine_genotype_values(
+                        [combined_by_id[sample_id], genotypes],
+                        line_no,
+                        sample_id,
+                    )
+                else:
+                    combined_by_id[sample_id] = genotypes
+                    sample_order.append(sample_id)
 
-                if progress_every and sample_index % progress_every == 0:
+                rows_read += 1
+                if progress_every and rows_read % progress_every == 0:
                     elapsed = time.perf_counter() - tic
                     print(
-                        "Processed %s: %,d individuals in %.1fs"
-                        % (input_path.name, sample_index, elapsed)
+                        "Read %,d individuals from %s in %.1fs"
+                        % (rows_read, input_path.name, elapsed)
                     )
 
-        if n_loci is None:
+        if rows_read == 0:
             raise ValueError(f"input file has no data lines: {input_path}")
-        sample_counts_by_file.append(sample_index)
-
-    if len(set(sample_counts_by_file)) > 1:
+        rows_read_by_file.append(rows_read)
+        duplicate_rows_by_file.append(duplicate_rows)
         print(
-            "Warning: genotype input files contain different numbers of rows: "
-            + ", ".join(str(value) for value in sample_counts_by_file)
+            "Input %i/%i: %s; rows read: %i; duplicate rows ignored: %i"
+            % (
+                file_index,
+                len(input_paths),
+                input_path,
+                rows_read,
+                duplicate_rows,
+            )
         )
 
-    max_sample_count = max(sample_counts_by_file) if sample_counts_by_file else 0
+    if n_loci is None:
+        raise ValueError("genotype input files have no data lines")
+
+    sample_count = len(sample_order)
     invalid_exclusions = {
-        value for value in exclude_ppl if value < 0 or value >= max_sample_count
+        value for value in exclude_ppl if value < 0 or value >= sample_count
     }
     if invalid_exclusions:
         print("Invalid ID(s) among excluded samples detected! They were ignored!")
 
-    print(f"Number of genotype input files: {len(input_paths)}")
-    print(f"Number of loci: {total_loci}")
+    for sample_index, sample_id in enumerate(sample_order):
+        if sample_index in exclude_ppl:
+            continue
+        genotypes = combined_by_id[sample_id]
+        if panel_by_id is None:
+            target_counts_list = [(count0, count1, count2)]
+        else:
+            panels = panel_by_id.get(sample_id, [unmatched_panel_name])
+            target_counts_list = [
+                get_group_counts(grouped_counts, panel, n_loci)
+                for panel in panels
+            ]
+        for target_counts in target_counts_list:
+            update_genotype_counts(
+                target_counts[0],
+                target_counts[1],
+                target_counts[2],
+                genotypes,
+                active_loci,
+            )
+
+    print(f"Number of loci: {n_loci}")
     print(
-        "Samples per file: "
-        + ", ".join(str(value) for value in sample_counts_by_file)
+        "Rows read per file: "
+        + ", ".join(str(value) for value in rows_read_by_file)
     )
+    print(
+        "Duplicate rows ignored per file: "
+        + ", ".join(str(value) for value in duplicate_rows_by_file)
+    )
+    print(f"Unique samples after combining: {sample_count}")
     if panel_by_id is None:
         row_counter, skipped_markers = write_count_accuracy(
             output_path,
@@ -990,7 +1037,7 @@ def process_genotype_inputs(
             count2,
             exclude_markers,
         )
-        return row_counter, skipped_markers, max_sample_count, {"all": output_path}
+        return row_counter, skipped_markers, sample_count, {"all": output_path}
 
     row_counter, skipped_markers, outputs = write_grouped_count_accuracy(
         output_path,
@@ -999,7 +1046,7 @@ def process_genotype_inputs(
         exclude_markers,
         panel_output_dir,
     )
-    return row_counter, skipped_markers, max_sample_count, outputs
+    return row_counter, skipped_markers, sample_count, outputs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1152,6 +1199,9 @@ def main(argv: list[str] | None = None) -> int:
                     args.unmatched_panel_name,
                     panel_output_dir,
                 )
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
         finally:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
